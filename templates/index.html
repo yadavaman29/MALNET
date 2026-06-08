@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MALNET — Malware Classification System</title>
+    <meta name="description" content="MALNET: Deep Neural Network powered malware classification system. Upload PE32 executables or API import lists for instant malware family identification.">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        /* ========== RESET & BASE ========== */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: rgba(12, 12, 25, 0.85);
+            --border-glow: #00ff88;
+            --accent-cyan: #00e5ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff003c;
+            --accent-purple: #b84dff;
+            --accent-orange: #ff9100;
+            --accent-yellow: #ffea00;
+            --text-primary: #e0e0e0;
+            --text-dim: #6a6a8a;
+            --pixel-size: 4px;
+        }
+
+        html { font-size: 16px; scroll-behavior: smooth; }
+        
+        body {
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: 'Share Tech Mono', monospace;
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* ========== PIXEL GRID BACKGROUND ========== */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+            background-size: var(--pixel-size) var(--pixel-size);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Animated scanline */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--accent-green), transparent);
+            opacity: 0.4;
+            animation: scanline 4s linear infinite;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        @keyframes scanline {
+            0% { top: -3px; }
+            100% { top: 100vh; }
+        }
+
+        /* ========== FLOATING PIXEL PARTICLES ========== */
+        .pixel-bg {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .pixel-particle {
+            position: absolute;
+            width: var(--pixel-size);
+            height: var(--pixel-size);
+            background: var(--accent-green);
+            opacity: 0;
+            animation: float-up linear infinite;
+            image-rendering: pixelated;
+        }
+
+        @keyframes float-up {
+            0% { transform: translateY(100vh) scale(1); opacity: 0; }
+            10% { opacity: 0.6; }
+            90% { opacity: 0.3; }
+            100% { transform: translateY(-10vh) scale(0.5); opacity: 0; }
+        }
+
+        /* ========== MAIN CONTAINER ========== */
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 4rem;
+        }
+
+        /* ========== HEADER / LOGO ========== */
+        .header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+            padding-top: 1rem;
+        }
+
+        .logo {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 3rem;
+            color: var(--accent-green);
+            text-shadow:
+                0 0 10px var(--accent-green),
+                0 0 30px rgba(0, 255, 136, 0.4),
+                0 0 60px rgba(0, 255, 136, 0.15),
+                4px 4px 0 #003d22;
+            letter-spacing: 8px;
+            animation: logo-pulse 3s ease-in-out infinite;
+            image-rendering: pixelated;
+        }
+
+        @keyframes logo-pulse {
+            0%, 100% { text-shadow: 0 0 10px var(--accent-green), 0 0 30px rgba(0,255,136,0.4), 0 0 60px rgba(0,255,136,0.15), 4px 4px 0 #003d22; }
+            50% { text-shadow: 0 0 20px var(--accent-green), 0 0 50px rgba(0,255,136,0.5), 0 0 80px rgba(0,255,136,0.25), 4px 4px 0 #003d22; }
+        }
+
+        .subtitle {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-top: 1rem;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
+
+        .subtitle .blink {
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* ========== CARD PANELS ========== */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid rgba(0, 255, 136, 0.15);
+            border-radius: 2px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            backdrop-filter: blur(12px);
+            image-rendering: auto;
+            transition: border-color 0.3s;
+        }
+
+        .card:hover {
+            border-color: rgba(0, 255, 136, 0.35);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: -1px; left: -1px; right: -1px; bottom: -1px;
+            border-radius: 2px;
+            background: linear-gradient(135deg, rgba(0,255,136,0.1), transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .card-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--accent-green);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .card-title .icon {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            box-shadow: 0 0 6px var(--accent-green);
+            animation: icon-blink 2s ease-in-out infinite;
+        }
+
+        @keyframes icon-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* ========== UPLOAD ZONE ========== */
+        .upload-zone {
+            border: 2px dashed rgba(0, 255, 136, 0.25);
+            border-radius: 2px;
+            padding: 2.5rem 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+            background: rgba(0, 255, 136, 0.02);
+        }
+
+        .upload-zone:hover, .upload-zone.drag-over {
+            border-color: var(--accent-green);
+            background: rgba(0, 255, 136, 0.06);
+            box-shadow: inset 0 0 30px rgba(0, 255, 136, 0.05);
+        }
+
+        .upload-zone.drag-over {
+            transform: scale(1.01);
+        }
+
+        .upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.8rem;
+            display: block;
+            filter: drop-shadow(0 0 8px rgba(0, 255, 136, 0.4));
+        }
+
+        .upload-text {
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            margin-bottom: 0.4rem;
+        }
+
+        .upload-hint {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .upload-zone input[type="file"] {
+            display: none;
+        }
+
+        /* ========== DIVIDER ========== */
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin: 1.5rem 0;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+        }
+
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(0,255,136,0.2), transparent);
+        }
+
+        /* ========== BUTTONS ========== */
+        .btn {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.6rem;
+            padding: 1rem 1.8rem;
+            border: 2px solid;
+            border-radius: 2px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(transparent 50%, rgba(0,0,0,0.15) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
+        .btn-primary {
+            background: rgba(0, 255, 136, 0.1);
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .btn-primary:hover {
+            background: rgba(0, 255, 136, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2), inset 0 0 20px rgba(0, 255, 136, 0.05);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: rgba(0, 229, 255, 0.08);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 229, 255, 0.18);
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.2), inset 0 0 20px rgba(0, 229, 255, 0.05);
+            transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* ========== FILE INFO BADGE ========== */
+        .file-info {
+            display: none;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 0.8rem 1rem;
+            background: rgba(0, 229, 255, 0.08);
+            border: 1px solid rgba(0, 229, 255, 0.2);
+            border-radius: 2px;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+        }
+
+        .file-info.visible { display: flex; }
+
+        .file-info .name {
+            color: var(--accent-cyan);
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-info .remove {
+            color: var(--accent-red);
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 0 4px;
+            transition: opacity 0.2s;
+        }
+
+        .file-info .remove:hover { opacity: 0.7; }
+
+        /* ========== LOADING STATE ========== */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 5, 15, 0.9);
+            z-index: 999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            backdrop-filter: blur(8px);
+        }
+
+        .loading-overlay.active { display: flex; }
+
+        .loader-bar {
+            width: 240px;
+            height: 12px;
+            border: 2px solid var(--accent-green);
+            position: relative;
+            overflow: hidden;
+            image-rendering: pixelated;
+        }
+
+        .loader-bar::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; bottom: 0;
+            width: 0%;
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: load-fill 2.5s ease-in-out infinite;
+        }
+
+        @keyframes load-fill {
+            0% { width: 0%; }
+            50% { width: 85%; }
+            100% { width: 100%; }
+        }
+
+        .loading-text {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.6rem;
+            color: var(--accent-green);
+            letter-spacing: 2px;
+            animation: blink 1s step-end infinite;
+        }
+
+        .loading-steps {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-align: center;
+            line-height: 1.8;
+        }
+
+        .loading-steps .done { color: var(--accent-green); }
+        .loading-steps .current { color: var(--accent-cyan); }
+
+        /* ========== RESULTS ========== */
+        #results-section {
+            display: none;
+        }
+
+        #results-section.visible { display: block; }
+
+        /* Single result card */
+        .result-main {
+            text-align: center;
+            padding: 2rem 1.5rem;
+        }
+
+        .result-label {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.6rem;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 0 15px currentColor;
+            animation: result-glow 2s ease-in-out infinite;
+        }
+
+        @keyframes result-glow {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.3); }
+        }
+
+        .result-confidence {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: var(--accent-green);
+            margin: 0.8rem 0;
+        }
+
+        .result-desc {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            max-width: 500px;
+            margin: 0 auto 1.5rem;
+            line-height: 1.6;
+        }
+
+        .result-meta {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            flex-wrap: wrap;
+        }
+
+        .result-meta span {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .result-meta .val { color: var(--accent-cyan); }
+
+        /* Probability bars */
+        .prob-grid {
+            margin-top: 1.5rem;
+        }
+
+        .prob-row {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .prob-row:last-child { border-bottom: none; }
+
+        .prob-name {
+            width: 130px;
+            font-size: 0.75rem;
+            text-align: right;
+            color: var(--text-dim);
+            flex-shrink: 0;
+        }
+
+        .prob-row.winner .prob-name {
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+
+        .prob-bar-wrap {
+            flex: 1;
+            height: 14px;
+            background: rgba(255,255,255,0.04);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .prob-bar-fill {
+            height: 100%;
+            background: var(--text-dim);
+            transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+            position: relative;
+            image-rendering: pixelated;
+        }
+
+        .prob-bar-fill::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(transparent 50%, rgba(0,0,0,0.2) 50%);
+            background-size: 100% 4px;
+        }
+
+        .prob-row.winner .prob-bar-fill {
+            background: var(--accent-green);
+            box-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+        }
+
+        .prob-pct {
+            width: 55px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .prob-row.winner .prob-pct {
+            color: var(--accent-green);
+        }
+
+        /* ========== TEST RESULTS TABLE ========== */
+        .test-results-grid {
+            display: grid;
+            gap: 0.8rem;
+        }
+
+        .test-row {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 1rem;
+            align-items: center;
+            padding: 1rem 1.2rem;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-left: 3px solid var(--text-dim);
+            border-radius: 2px;
+            transition: all 0.3s;
+            animation: row-slide-in 0.4s ease-out both;
+        }
+
+        .test-row:hover {
+            background: rgba(255,255,255,0.04);
+            border-left-color: var(--accent-green);
+        }
+
+        @keyframes row-slide-in {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .test-row .file-name {
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .test-row .malware-type {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.55rem;
+            padding: 0.4rem 0.8rem;
+            border-radius: 2px;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+
+        .test-row .conf {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--accent-green);
+            white-space: nowrap;
+        }
+
+        /* ========== ERROR STATE ========== */
+        .error-msg {
+            display: none;
+            padding: 1rem 1.2rem;
+            background: rgba(255, 0, 60, 0.08);
+            border: 1px solid rgba(255, 0, 60, 0.3);
+            border-radius: 2px;
+            color: var(--accent-red);
+            font-size: 0.85rem;
+            margin-top: 1rem;
+        }
+
+        .error-msg.visible { display: block; }
+
+        /* ========== FOOTER ========== */
+        .footer {
+            text-align: center;
+            padding: 2rem 0 1rem;
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            letter-spacing: 2px;
+        }
+
+        .footer .accent { color: var(--accent-green); }
+
+        /* ========== RESPONSIVE ========== */
+        @media (max-width: 600px) {
+            .logo { font-size: 1.8rem; letter-spacing: 4px; }
+            .container { padding: 1rem; }
+            .card { padding: 1.2rem; }
+            .btn { font-size: 0.5rem; padding: 0.8rem 1.2rem; }
+            .result-label { font-size: 1rem; }
+            .result-confidence { font-size: 1.8rem; }
+            .test-row { grid-template-columns: 1fr; gap: 0.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Floating pixel particles -->
+    <div class="pixel-bg" id="pixelBg"></div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-text">ANALYZING BINARY</div>
+        <div class="loader-bar"></div>
+        <div class="loading-steps" id="loadingSteps">
+            <div class="current">▸ Extracting Import Address Table...</div>
+            <div>▸ Building feature vector...</div>
+            <div>▸ Running DNN classification...</div>
+        </div>
+    </div>
+
+    <div class="container">
+
+        <!-- Header -->
+        <header class="header">
+            <h1 class="logo">MALNET</h1>
+            <p class="subtitle">Deep Neural Network Malware Classifier <span class="blink">_</span></p>
+        </header>
+
+        <!-- Upload Section -->
+        <section class="card" id="upload-card">
+            <div class="card-title"><span class="icon"></span> Upload Suspicious File</div>
+
+            <div class="upload-zone" id="uploadZone" role="button" tabindex="0" aria-label="Upload file">
+                <span class="upload-icon">⬆</span>
+                <div class="upload-text">Drop file here or click to browse</div>
+                <div class="upload-hint">Accepts .exe, .dll (real PE32 binary) or .txt (extracted API imports)</div>
+                <input type="file" id="fileInput" accept=".exe,.dll,.txt">
+            </div>
+
+            <div class="file-info" id="fileInfo">
+                <span>📄</span>
+                <span class="name" id="fileName"></span>
+                <span class="remove" id="fileRemove" title="Remove file">✕</span>
+            </div>
+
+            <div style="margin-top:1.5rem; text-align:center;">
+                <button class="btn btn-primary" id="classifyBtn" disabled>
+                    ⚡ Classify
+                </button>
+            </div>
+
+            <div class="error-msg" id="errorMsg"></div>
+        </section>
+
+        <!-- Divider -->
+        <div class="divider">OR TRY A DEMO</div>
+
+        <!-- Test Samples -->
+        <section class="card">
+            <div class="card-title"><span class="icon"></span> Run Test Samples</div>
+            <p style="color:var(--text-dim); font-size:0.82rem; margin-bottom:1.2rem; line-height:1.6;">
+                Don't have a file? Run pre-loaded test samples to see the classifier in action.
+                8 known malware samples will be classified in real-time.
+            </p>
+            <div style="text-align:center;">
+                <button class="btn btn-secondary" id="testBtn">
+                    🧪 Run Test Samples
+                </button>
+            </div>
+        </section>
+
+        <!-- Results -->
+        <section class="card" id="results-section">
+            <div class="card-title"><span class="icon"></span> <span id="results-title">Classification Result</span></div>
+            <div id="results-content"></div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <span class="accent">MALNET</span> &middot; Powered by Keras + TensorFlow DNN &middot; 1858 Features &middot; 8 Malware Classes
+        </footer>
+    </div>
+
+<script>
+// ============================================================
+//  PIXEL PARTICLES
+// ============================================================
+(function createParticles() {
+    const bg = document.getElementById('pixelBg');
+    const colors = ['#00ff88', '#00e5ff', '#b84dff', '#ff003c', '#ffea00'];
+    for (let i = 0; i < 40; i++) {
+        const p = document.createElement('div');
+        p.className = 'pixel-particle';
+        p.style.left = Math.random() * 100 + '%';
+        p.style.width = p.style.height = (Math.random() * 3 + 2) + 'px';
+        p.style.background = colors[Math.floor(Math.random() * colors.length)];
+        p.style.animationDuration = (Math.random() * 8 + 6) + 's';
+        p.style.animationDelay = (Math.random() * 10) + 's';
+        bg.appendChild(p);
+    }
+})();
+
+// ============================================================
+//  DOM REFS
+// ============================================================
+const uploadZone  = document.getElementById('uploadZone');
+const fileInput   = document.getElementById('fileInput');
+const fileInfo    = document.getElementById('fileInfo');
+const fileName    = document.getElementById('fileName');
+const fileRemove  = document.getElementById('fileRemove');
+const classifyBtn = document.getElementById('classifyBtn');
+const testBtn     = document.getElementById('testBtn');
+const errorMsg    = document.getElementById('errorMsg');
+const loading     = document.getElementById('loadingOverlay');
+const resultsSection = document.getElementById('results-section');
+const resultsContent = document.getElementById('results-content');
+const resultsTitle   = document.getElementById('results-title');
+
+let selectedFile = null;
+
+const LABEL_COLORS = {
+    'Backdoor':       '#e74c3c',
+    'Downloader':     '#e67e22',
+    'Keylogger':      '#9b59b6',
+    'Miner':          '#f39c12',
+    'Ransomware':     '#c0392b',
+    'Rouge Software': '#16a085',
+    'Trojan':         '#2980b9',
+    'Worm':           '#27ae60'
+};
+
+// ============================================================
+//  FILE UPLOAD HANDLING
+// ============================================================
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('keydown', e => { if (e.key === 'Enter') fileInput.click(); });
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) handleFile(fileInput.files[0]);
+});
+
+fileRemove.addEventListener('click', clearFile);
+
+function handleFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['exe', 'dll', 'txt'].includes(ext)) {
+        showError('Invalid file type. Please upload a .exe, .dll, or .txt file.');
+        return;
+    }
+    selectedFile = file;
+    fileName.textContent = file.name + ' (' + formatSize(file.size) + ')';
+    fileInfo.classList.add('visible');
+    classifyBtn.disabled = false;
+    hideError();
+}
+
+function clearFile() {
+    selectedFile = null;
+    fileInput.value = '';
+    fileInfo.classList.remove('visible');
+    classifyBtn.disabled = true;
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+// ============================================================
+//  CLASSIFY BUTTON
+// ============================================================
+classifyBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    showLoading(selectedFile.name.toLowerCase().endsWith('.txt') ? 'txt' : 'exe');
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+        const res = await fetch('/predict', { method: 'POST', body: formData });
+        const data = await res.json();
+        hideLoading();
+
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+        renderSingleResult(data);
+    } catch (err) {
+        hideLoading();
+        showError('Network error. Make sure the server is running.');
+    }
+});
+
+// ============================================================
+//  TEST SAMPLES BUTTON
+// ============================================================
+testBtn.addEventListener('click', async () => {
+    showLoading('test');
+    try {
+        const res = await fetch('/test-samples', { method: 'POST' });
+        const data = await res.json();
+        hideLoading();
+
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+        renderTestResults(data);
+    } catch (err) {
+        hideLoading();
+        showError('Network error. Make sure the server is running.');
+    }
+});
+
+// ============================================================
+//  RENDER: SINGLE RESULT
+// ============================================================
+function renderSingleResult(data) {
+    const color = data.color || LABEL_COLORS[data.label] || '#00ff88';
+
+    let probsHTML = '';
+    const sorted = Object.entries(data.all_probabilities).sort((a, b) => b[1] - a[1]);
+    for (const [name, pct] of sorted) {
+        const isWinner = name === data.label;
+        probsHTML += `
+            <div class="prob-row ${isWinner ? 'winner' : ''}">
+                <div class="prob-name">${name}</div>
+                <div class="prob-bar-wrap">
+                    <div class="prob-bar-fill" style="width:0%" data-width="${pct}"></div>
+                </div>
+                <div class="prob-pct">${pct.toFixed(1)}%</div>
+            </div>`;
+    }
+
+    resultsTitle.textContent = 'Classification Result';
+    resultsContent.innerHTML = `
+        <div class="result-main">
+            <div class="result-label" style="color:${color}">${data.label}</div>
+            <div class="result-confidence">${data.confidence.toFixed(1)}%</div>
+            <div class="result-desc">${data.description}</div>
+            <div class="result-meta">
+                <span>Imports: <span class="val">${data.total_imports}</span></span>
+                <span>Features matched: <span class="val">${data.matched_features}</span></span>
+            </div>
+        </div>
+        <div class="prob-grid">${probsHTML}</div>`;
+
+    resultsSection.classList.add('visible');
+    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Animate bars
+    setTimeout(() => {
+        document.querySelectorAll('.prob-bar-fill').forEach(el => {
+            el.style.width = el.dataset.width + '%';
+        });
+    }, 100);
+}
+
+// ============================================================
+//  RENDER: TEST RESULTS
+// ============================================================
+function renderTestResults(results) {
+    let rows = '';
+    results.forEach((r, i) => {
+        const color = r.color || LABEL_COLORS[r.label] || '#00ff88';
+        rows += `
+            <div class="test-row" style="animation-delay:${i * 0.08}s; border-left-color:${color}">
+                <div class="file-name">${r.filename}</div>
+                <div class="malware-type" style="background:${color}22; color:${color}; border:1px solid ${color}44">${r.label}</div>
+                <div class="conf">${r.confidence.toFixed(1)}%</div>
+            </div>`;
+    });
+
+    resultsTitle.textContent = 'Test Sample Results (' + results.length + ' files)';
+    resultsContent.innerHTML = `<div class="test-results-grid">${rows}</div>`;
+
+    resultsSection.classList.add('visible');
+    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ============================================================
+//  LOADING / ERROR HELPERS
+// ============================================================
+function showLoading(mode) {
+    const steps = document.getElementById('loadingSteps');
+    if (mode === 'exe') {
+        steps.innerHTML = `
+            <div class="current">▸ Parsing PE32 binary structure...</div>
+            <div>▸ Extracting Import Address Table...</div>
+            <div>▸ Building 1858-feature vector...</div>
+            <div>▸ Running DNN classification...</div>`;
+    } else if (mode === 'txt') {
+        steps.innerHTML = `
+            <div class="current">▸ Reading API import list...</div>
+            <div>▸ Building 1858-feature vector...</div>
+            <div>▸ Running DNN classification...</div>`;
+    } else {
+        steps.innerHTML = `
+            <div class="current">▸ Loading 8 test samples...</div>
+            <div>▸ Building feature vectors...</div>
+            <div>▸ Running batch classification...</div>`;
+    }
+    loading.classList.add('active');
+}
+
+function hideLoading() { loading.classList.remove('active'); }
+
+function showError(msg) {
+    errorMsg.textContent = '⚠ ' + msg;
+    errorMsg.classList.add('visible');
+}
+
+function hideError() { errorMsg.classList.remove('visible'); }
+</script>
+
+</body>
+</html>

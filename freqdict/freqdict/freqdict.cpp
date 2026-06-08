@@ -1,0 +1,33 @@
+
+
+#include <iostream>
+#include <string>
+#include <exception>
+#include <experimental/filesystem>
+#include "create_dictionary.h"
+
+
+int main(int argc, char** argv)
+{
+	if (argc == 2)
+	{
+		create_dictionary dictionary;
+		dictionary.create(argv[1]);
+	}
+	else
+	{
+		std::cout << "Enter the directory: ";
+		std::string dir_location;
+		std::getline(std::cin, dir_location);
+		create_dictionary dictionary;
+		unsigned int count = 0;
+		for (auto &file : std::experimental::filesystem::recursive_directory_iterator(dir_location))
+		{
+			auto path_object = file.path();
+			std::string path = path_object.u8string();
+			count++;
+			std::cout << count << ". Scanning: " << path << "\n";
+			dictionary.create(path);
+		}
+	}
+}
